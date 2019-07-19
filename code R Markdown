@@ -1,0 +1,269 @@
+---
+title: "Reviewing Muddy Concepts - What is the Naive Bayes Classifier, knn and the ROC Curve?"
+author: "Jens Anderer"
+output: html_notebook
+---
+
+```{r include=FALSE}
+#setting working directory and installing packages 
+library("ISLR")
+library("readr")
+library("dplyr")
+library("tidyverse")
+library("Rmisc")
+library("lattice")
+library("plyr")
+library("MASS")
+library("corrplot")
+library("rms")
+library("boot")
+library("caret")
+library("klaR")
+library("randomForest")
+library("glmnet")
+library("pcr")
+library("pls")
+library("countrycode")
+library("e1071")
+library("FNN")
+library("class")
+library("mlbench")
+library("pROC")
+library("ROCR")
+library("plotROC")
+```
+
+### Exercise 6.1
+
+##(a) "What is Naive Bayes Classifier? Those consultants really confused me."
+
+The `Naïve Bayes classifier` is a very simple probabilistic technique. 
+As its name says, this method can be outperformed by other more sophisticated methods but overall the classifier performs well
+in many complex real-world problems. 
+
+For example, the `Naive Bayes Classifier` can be used for calculating the so called conditional probability that an event B 
+will occur, based on the finding that A has already happened. When playing poker, the classifier could be used to compute the 
+probability that a Queen or a King will be drawn, when a King has already been drawn. 
+
+In this sense, the probability that a King is drawn first is 4/52, since there are 4 Kings in a deck of 52 cards. 
+When a King is drawn first, the probability that a Queen will be drawn next is 4/51, 
+since there are still 4 Queens in the deck, which now contains one card less. 
+Thus, the final probability would be P(King and Queen) = 4/52 * 4/51 = 0.006, which is less than 1 per cent. 
+
+Since its based on oversimplified assumptions it is a resource efficient algorithm which is fast and scales well. 
+We can control for the accuracy of this method as I will show below. 
+
+I will provide an example of an adequate use of the `Naive Bayes Classifier`, using the `Titanic` dataset, 
+which consists information for about 2200 `Titanic` passangers, summarizing them into their 
+economic status (1st, 2nd and 3rd class as well as crew members), gender (male or female) and age category (child or adult) 
+as well as the information wheter the passanger survived or not. 
+
+Based on the criteria of this historical example, let's assume we want to predict if a passenger survived or not. 
+Also, we are interested in the overall accuracy of our prediction. 
+
+```{r include=FALSE}
+#loading the Titanic dataset
+data(Titanic)
+
+#Save into a data frame 
+Titanic2 <- as.data.frame(Titanic) #Titanic2 shows frequencies
+
+#transforming the dataset such that each combination equal to the frequency will be repeated
+repeating_sequence = rep.int(seq_len(nrow(Titanic2)), Titanic2$Freq)
+
+#Create the dataset by row repetition created
+Titanic3 = Titanic2[repeating_sequence,]
+names(Titanic3)[2] <- "Gender" #renaming from sex to gender
+Titanic4 <- Titanic3[,-c(5)] #droping the frequency column
+Titanic4 #now, the dataset is in an adequate format, where each passenger is displayed per row (total of 2201 rows)
+
+#Fitting the Naive Bayes model
+NaiveBayesModel_Titanic4 = naiveBayes(Survived ~., data = Titanic4)
+```
+
+```{r echo=FALSE}
+#print model summary
+NaiveBayesModel_Titanic4
+```
+The so called a-priori probabilities represents the distribution of our data. As you can see in the output above, 67 per cent of the passengers included in the dataset didn't survive, while 32 per cent did survive . The `Naive Bayes Classifier` also calculates the conditional probabilities for each feature (Class, Gender, Age) seperately.
+
+```{r echo=FALSE}
+sum(with(Titanic4, Survived == "No"))
+sum(with(Titanic4, Survived == "Yes"))
+
+#Prediction on the dataset
+predictions = predict(NaiveBayesModel_Titanic4, Titanic4)
+
+#Confusion matrix to check accuracy
+table(predictions,Titanic4$Survived)
+
+1364/1490 
+349/711
+(((1364/1490)+(349/711))/2)
+```
+The result printed above is predicting 1364 out of a total of 1490 "No-Cases", which translates into a predictive accuracy 
+of 91.5 per cent. However, the accuracy falls to 49 per cent for the "Yes-Cases", predicting 349 of a total of 711 
+observations correctly. Hence, the `Naive Bayes Classifier` provides an overall accuracy of about 70 per cent, which is 
+better than random betting, when predicting Survivors and Non-Survivors of the `Titanic`. 
+
+======================================================================================================================================
+
+##(b) "What is kNN? Can I use it for classification or regression?"
+
+First of all, `classification` and `regression` are two different problems. `k-Nearest Neighbors (kNN)` can be used for both.
+
+Imagine you have many unlabeled examples in a dataset and you want to assign them automatically to a certain group or class: 
+This is a `classification` problem. The best example is probably the spam filter of your e-mail inbox. 
+Here, a filter automatically assigns every incoming e-mail with the label or class "not spam", 
+if we are talking about an e-mail you want to receive. On the other hand, the e-mail is labeled "spam" 
+when it contains undesirable and potentially harmful content such as advertising from unknown and suspicious senders. 
+
+# Usage of`knn` for a `classification` problem:
+
+`kNN` is an algorithm which keeps all labeled examples - for example all cars - from the (training) dataset "in mind". 
+Given that the dataset contains the following observations, the algorithm "knows" that a BMW model XXX manufactured in 2014 
+with a total of 300.000 driven km can still be sold between more or less 49.000 to 61.000 Euro. 
+Once we are introducing a new car - or a new x in general - to the algorithm, `kNN` is able to find a certain amount of 
+car examples (k), which are closest to the new car. Hence, when used in a `classification` setting, `kNN` is able to assign 
+a label or class to the new car, based on the majority label of all cars closest. 
+
+Let's take a second example of sample collecting different features of credit takers. 
+
+In the following, I try to predict the probability of being diabetes positive based on several clinical variables. 
+
+```{r include=FALSE}
+#Load the data and remove NAs
+data("PimaIndiansDiabetes2", package = "mlbench")
+PimaIndiansDiabetes2 <- na.omit(PimaIndiansDiabetes2)
+# Inspect the data
+sample_n(PimaIndiansDiabetes2, 3)
+
+# Split the data into training and test set
+set.seed(123)
+training.samples <- PimaIndiansDiabetes2$diabetes %>% 
+  createDataPartition(p = 0.8, list = FALSE) # splot 80% for the training and 20% for the testing dataset
+train.data  <- PimaIndiansDiabetes2[training.samples, ]
+test.data <- PimaIndiansDiabetes2[-training.samples, ]
+```
+In this case we as data scientists have to split the whole dataset into two parts, a training and a testing dataset. 
+When using the `knn` afterwards, we can identify te best k = 13. 
+
+```{r}
+# Fit the model on the training set
+set.seed(123)
+model <- train(
+  diabetes ~., data = train.data, method = "knn",
+  trControl = trainControl("cv", number = 10),
+  preProcess = c("center","scale"),
+  tuneLength = 20
+  )
+# Plot model accuracy vs different values of k
+plot(model)
+```
+
+```{r include=FALSE}
+# Print the best tuning parameter k which maximizes the model accuracy 
+model$bestTune
+
+# predictions on the test data
+predicted.classes <- model %>% predict(test.data)
+head(predicted.classes)
+```
+We can also identify the model accuracy, which is roughly 77 per cent.
+```{r echo=TRUE}
+# Compute model accuracy rate
+mean(predicted.classes == test.data$diabetes)
+```
+
+# Usage of`knn` for a `regression` problem:
+
+`Regression` can be used for problems of predicting a target given an unlabeled example, 
+for example in order to predict the price of a car based on its features such as year of manufacturing, configuration, 
+mileage and others. In this case, `kNN` takes the average values of all cars closest to the new one and assigns 
+an average label. Here, a `regression` algorithm takes many already labeled examples of cars as inputs and produces 
+a model which estimates the price of an unlabeled car, we are interested in. 
+
+Let's take another example. Using the `Boston` dataset, let's assume we want to predict the "lower status of the population 
+in percent" (lstats) using the "median value of owner-occupied homes in $1000s" (medv). 
+
+```{r include=FALSE}
+#since there is only one predictor, there are no scaling issues
+# since checking for RMSE isn't important here, splitting into testing and training dataset isn't requiered 
+X_boston = Boston["lstat"]
+y_boston = Boston$medv
+
+#creating a “testing”-set, that is a grid of lstat values at which we will predict medv.
+
+lstat_grid = data.frame(lstat = seq(range(X_boston$lstat)[1], range(X_boston$lstat)[2], by = 0.01))
+
+#Unfortunately, knn() from class only handles classification. 
+#Performing regression with knn.reg() from the FNN package
+
+pred_001 = FNN::knn.reg(train = X_boston, test = lstat_grid, y = y_boston, k = 1)
+pred_005 = FNN::knn.reg(train = X_boston, test = lstat_grid, y = y_boston, k = 5)
+pred_010 = FNN::knn.reg(train = X_boston, test = lstat_grid, y = y_boston, k = 10)
+pred_050 = FNN::knn.reg(train = X_boston, test = lstat_grid, y = y_boston, k = 50)
+pred_100 = FNN::knn.reg(train = X_boston, test = lstat_grid, y = y_boston, k = 100)
+pred_506 = FNN::knn.reg(train = X_boston, test = lstat_grid, y = y_boston, k = 506)
+
+#predicting various values of k: 1, 5, 10, 25, 50 and 506 (which is the number of observations in this dataset)
+
+par(mfrow = c(3, 2))
+
+plot(medv ~ lstat, data = Boston, cex = .8, col = "dodgerblue", main = "k = 1")
+lines(lstat_grid$lstat, pred_001$pred, col = "black", lwd = 0.25)
+
+plot(medv ~ lstat, data = Boston, cex = .8, col = "dodgerblue", main = "k = 5")
+lines(lstat_grid$lstat, pred_005$pred, col = "black", lwd = 0.75)
+
+plot(medv ~ lstat, data = Boston, cex = .8, col = "dodgerblue", main = "k = 10")
+lines(lstat_grid$lstat, pred_010$pred, col = "black", lwd = 1)
+
+plot(medv ~ lstat, data = Boston, cex = .8, col = "dodgerblue", main = "k = 25")
+lines(lstat_grid$lstat, pred_050$pred, col = "black", lwd = 1.5)
+
+plot(medv ~ lstat, data = Boston, cex = .8, col = "dodgerblue", main = "k = 50")
+lines(lstat_grid$lstat, pred_100$pred, col = "black", lwd = 2)
+
+plot(medv ~ lstat, data = Boston, cex = .8, col = "dodgerblue", main = "k = 506")
+lines(lstat_grid$lstat, pred_506$pred, col = "black", lwd = 2)
+
+#k = 1 is clearly overfitting, as k = 1 is a very complex, highly variable model. 
+#k = 506 is clearly underfitting the data, as k = 506 is a very simple, low variance model. 
+#k = 5 performs quite well on the relationship
+```
+We can see that k = 1 is overfitting, since the line isn't matching the complexity of the dataset.
+On ther other hand side, k = 506, which is also the maximum amount of observations in the dataset, is cleary underfitting.
+
+In this sense, we can control for the model accuracy. For this example, I would go for the choice k = 5 or k = 10, 
+which capture the variance of the data. 
+
+======================================================================================================================================
+
+#(c) "How do I assess the quality of regression and classification models? What's ROC and how do I use it?"
+
+The so called `ROC curve` is a method for assessing the quality or accuracy of your model, which is given by the number of 
+correctly classified examples divided by the total number of classfied observations in the dataset. 
+The important measure when controlling for model accuracy is the `AUC value`. When the `AUC` is 0.5, 
+the your model predicts well in 50 per cent of the cases, when the `AUC` is 0.85, 
+the model performs well in 85 per cent of the cases, which is considered to be appropriate for science and business. 
+
+An examples of how a `ROC curve` might look like is this one: 
+
+```{r echo=FALSE}
+#creating example 
+set.seed(12345)
+D.ex <- rbinom(200, size = 1, prob = .5)
+M1 <- rnorm(200, mean = D.ex, sd = .65)
+M2 <- rnorm(200, mean = D.ex, sd = 1.5)
+
+test <- data.frame(D = D.ex, D.str = c("Healthy", "Ill")[D.ex + 1], 
+                   M1 = M1, M2 = M2, stringsAsFactors = FALSE)
+```
+
+```{r echo=FALSE}
+basicplot <- ggplot(test, aes(d = D, m = M1)) + geom_roc() + theme_minimal()
+basicplot
+
+```
+Please come back to me if you have any further questions.
