@@ -33,8 +33,6 @@ library("ROCR")
 library("plotROC")
 ```
 
-### Exercise 6.1
-
 ##(a) "What is Naive Bayes Classifier? Those consultants really confused me."
 
 The `Naïve Bayes classifier` is a very simple probabilistic technique. 
